@@ -20,6 +20,10 @@ yolo_model = YOLO("best.pt")
 
 # Path to the CSV file
 CSV_FILE_PATH = "fridge_items.csv"
+# Directory to save annotated images
+ANNOTATED_IMAGES_DIR = "annotated_images"
+if not os.path.exists(ANNOTATED_IMAGES_DIR):
+    os.makedirs(ANNOTATED_IMAGES_DIR)
 
 # Mapping detected object names to generalized categories and user-friendly names
 object_name_mapping = {
@@ -34,7 +38,7 @@ object_name_mapping = {
     # Add more mappings as needed
 }
 
-# Function to detect items using YOLOv8 and return a list of both class names and mapped item names
+# Function to detect items using YOLOv8 and return both items and the annotated image
 def detect_items_yolov8(image):
     np_img = np.frombuffer(image, np.uint8)
     img = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
@@ -50,7 +54,10 @@ def detect_items_yolov8(image):
         print(f"Detected class: {class_name}, Mapped name: {generalized_name}")  # Debug statement
         items_info.append({"class_name": class_name, "mapped_name": generalized_name})  # Store both names
 
-    return items_info
+    # Annotate the image with bounding boxes
+    annotated_img = results[0].plot()
+
+    return items_info, annotated_img
 
 # Function to query GPT for expiry based on the original class name
 def get_expiry_for_item(item_class, api_key):
@@ -183,12 +190,17 @@ def upload_image():
     if file:
         # Process the image file
         image = file.read()
-        detected_items = detect_items_yolov8(image)
+        detected_items, annotated_img = detect_items_yolov8(image)
+
+        # Save the annotated image with bounding boxes
+        img_name = f"{ANNOTATED_IMAGES_DIR}/annotated_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+        cv2.imwrite(img_name, annotated_img)
+        print(f"Annotated image saved as: {img_name}")
 
         # Update items and CSV, only querying GPT for new or changed items
         updated_items = update_items_and_csv(detected_items, api_key)
 
-        return jsonify({"data": updated_items}), 200
+        return jsonify({"data": updated_items, "annotated_image": img_name}), 200
 
     return jsonify({"error": "File processing failed"}), 500
 
