@@ -28,6 +28,7 @@ object_name_mapping = {
     "open_can": "Energy_drink",
     "closed_can": "Energy_drink",
     "fresh_apple": "apple",
+     "used_apple": "apple",
     "opened_yogurt": "yogurt",
     "closed_yogurt": "yogurt",
     # Add more mappings as needed
