@@ -21,14 +21,15 @@ yolo_model = YOLO("best_over.pt")
 # Path to the CSV file
 CSV_FILE_PATH = "fridge_items.csv"
 
-# Mapping detected object names to generalized categories
+# Mapping detected object names to generalized categories and user-friendly names
 object_name_mapping = {
     "used_banana": "banana",
     "fresh_banana": "banana",
-    "open_can": "can",
-    "closed_can": "can",
+    "open_can": "Energy_drink",
+    "closed_can": "Energy_drink",
     "fresh_apple": "apple",
     "opened_yogurt": "yogurt",
+    "closed_yogurt": "yogurt",
     # Add more mappings as needed
 }
 
@@ -90,7 +91,7 @@ def extract_expiry_number(response):
 
 # Function to determine the category for each item
 def get_category_for_item(item_class):
-    if item_class == "can":
+    if item_class == "Energy_drink":
         return "beverage"
     if item_class in ["banana", "apple"]:
         return "fruit"
