@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 app = Flask(__name__)
 
 # Load pre-trained YOLOv8 model for object detection
-yolo_model = YOLO("best_over.pt")
+yolo_model = YOLO("best.pt")
 
 # Path to the CSV file
 CSV_FILE_PATH = "fridge_items.csv"
@@ -25,8 +25,8 @@ CSV_FILE_PATH = "fridge_items.csv"
 object_name_mapping = {
     "used_banana": "banana",
     "fresh_banana": "banana",
-    "open_can": "energy drink",
-    "closed_can": "energy drink",
+    "open_can": "energy_drink",
+    "closed_can": "energy_drink",
     "fresh_apple": "apple",
      "used_apple": "apple",
     "opened_yogurt": "yogurt",
@@ -59,7 +59,7 @@ def get_expiry_for_item(item_class, api_key):
     }
 
     # Query GPT for number of days
-    query = f"Assume the '{item_class}' was recently purchased and is refrigerated. How many days until it will no longer be usable or edible? Please respond with just the number of days."
+    query = f"judge from the condition of this '{item_class}' which is kept in a refrigerator. How many days until it will no longer be edible? Please respond with realistic number of days."
 
     payload = {
         "model": "gpt-4o-mini",
@@ -92,7 +92,11 @@ def extract_expiry_number(response):
 
 # Function to determine the category for each item
 def get_category_for_item(item_class):
-    if item_class == "Energy_drink":
+    # if item_class == "energy drink":
+    item_class = item_class.lower().strip()  # Normalize the class name
+    print(f"Mapping category for: {item_class}")  # Debug print
+    if item_class in ["energy_drink", "closed_can", "open_can"]:
+        print("Matched category: beverage")  # Debug print
         return "beverage"
     if item_class in ["banana", "apple"]:
         return "fruit"
