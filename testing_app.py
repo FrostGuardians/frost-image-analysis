@@ -162,6 +162,9 @@ def update_items_and_csv(detected_items, api_key):
                 "Category": existing_row["Category"].values[0]
             })
 
+    # Remove duplicates based on item name to ensure items aren't listed multiple times
+    df.drop_duplicates(subset=["Name"], inplace=True)
+
     # Save the updated DataFrame back to the CSV
     df.to_csv(CSV_FILE_PATH, index=False)
 
