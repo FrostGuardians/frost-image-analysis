@@ -178,6 +178,19 @@ def update_items_and_csv(detected_items, api_key):
     return updated_items
 
 # '/upload-image' endpoint for processing the image and returning updated data
+@app.route('/detected-image', methods=['GET'])
+def detect_image():
+    #serve the latest image in the annotated images directory
+    annotated_images = os.listdir(ANNOTATED_IMAGES_DIR)
+    if annotated_images:
+        latest_image = max(annotated_images, key=os.path.getctime)
+        return send_file(f"{ANNOTATED_IMAGES_DIR}/{latest_image}", mimetype='image/jpeg')
+    return jsonify({"error": "No annotated images found"}), 404
+
+    
+
+
+
 @app.route('/upload-image', methods=['POST'])
 def upload_image():
     if 'file' not in request.files:
