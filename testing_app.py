@@ -25,8 +25,8 @@ CSV_FILE_PATH = "fridge_items.csv"
 object_name_mapping = {
     "used_banana": "banana",
     "fresh_banana": "banana",
-    "open_can": "Energy_drink",
-    "closed_can": "Energy_drink",
+    "open_can": "energy drink",
+    "closed_can": "energy drink",
     "fresh_apple": "apple",
      "used_apple": "apple",
     "opened_yogurt": "yogurt",
