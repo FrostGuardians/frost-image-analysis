@@ -4,9 +4,10 @@ import json
 import re
 import pandas as pd
 from flask import Flask, request, jsonify
+from config import api_key
 
 # OpenAI API Key
-api_key = "XXXXXXXXX"  # Replace with your actual API key
+# api_key = "XXXXXXXXX"  # Replace with your actual API key
 
 app = Flask(__name__)
 
