@@ -10,15 +10,16 @@ from config import api_key
 from PIL import Image
 import io
 from ultralytics import YOLO
+import os
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
 # Load pre-trained YOLOv8 model for object detection
 yolo_model = YOLO("best.pt")
 
-# Function to encode the image
-def encode_image(image):
-    return base64.b64encode(image).decode('utf-8')
+# Path to the CSV file
+CSV_FILE_PATH = "fridge_items.csv"
 
 # Mapping detected object names to generalized categories
 object_name_mapping = {
@@ -31,42 +32,32 @@ object_name_mapping = {
     # Add more mappings as needed
 }
 
-# Function to detect items using YOLOv8 and return bounding boxes and labels
+# Function to detect items using YOLOv8 and return a list of mapped item names
 def detect_items_yolov8(image):
     np_img = np.frombuffer(image, np.uint8)
     img = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
 
     # Perform object detection using YOLOv8
-    results = yolo_model.predict(source=img, save=False)  # Disable save since we don't want to save the image
+    results = yolo_model.predict(source=img, save=False)
 
-    # Get bounding boxes and class labels
+    # Get mapped item names from YOLOv8 results
     items_info = []
     for result in results[0].boxes:
-        x1, y1, x2, y2 = map(int, result.xyxy[0])  # Bounding box coordinates
         class_name = yolo_model.names[int(result.cls[0])]  # Detected class label
         generalized_name = object_name_mapping.get(class_name, class_name)  # Map to generalized name
-        items_info.append({
-            "class_name": generalized_name,
-            "original_class": class_name,  # Store the original class for special cases (like opened or closed can)
-            "bbox": (x1, y1, x2, y2)
-        })
+        items_info.append(generalized_name)  # Only store the mapped name
 
-    return items_info, img
-
-# Function to crop detected item from the original image
-def crop_item_from_image(image, bbox):
-    x1, y1, x2, y2 = bbox
-    return image[y1:y2, x1:x2]
+    return items_info
 
 # Function to query GPT for expiry based on detected object
-def get_expiry_for_item(item_class, original_class, api_key):
+def get_expiry_for_item(item_class, api_key):
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
 
-    # Modify the query to explicitly ask for a number of days, assuming default conditions
-    query = f"Assume the '{original_class}' is now in refrigerator. How many days until it will no longer be usable or edible? Please respond with just the number of days."
+    # Query GPT for number of days
+    query = f"Assume the '{item_class}' was recently purchased and is refrigerated. How many days until it will no longer be usable or edible? Please respond with just the number of days."
 
     payload = {
         "model": "gpt-4o-mini",
@@ -76,96 +67,82 @@ def get_expiry_for_item(item_class, original_class, api_key):
                 "content": query
             }
         ],
-        "max_tokens": 30  # Keep it small to limit the response to a number
+        "max_tokens": 30
     }
 
     try:
-        # Make the API request
         response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
-
-        # Debug: Print the response from GPT to check if it's valid
-        print(f"GPT Response: {response.text}")
-
-        # Extract expiry days from the response
         return extract_expiry_number(response)
 
     except Exception as e:
-        # Log the error and return None if something goes wrong
         print(f"Error querying GPT: {e}")
         return None
 
-# Function to extract expiry number from response using regex
+# Function to extract expiry number from GPT response
 def extract_expiry_number(response):
     try:
-        # Parse the JSON response from GPT
-        content = response.json()['choices'][0]['message']['content']
-
-        # Debug: Log the response content
-        print(f"Extracted Content: {content.strip()}")
-
-        # Try to directly convert the content to an integer, expecting only a number
-        expiry_days = int(content.strip())
+        content = response.json()['choices'][0]['message']['content'].strip()
+        expiry_days = int(content)
         return expiry_days
-
     except (KeyError, IndexError, ValueError) as e:
         print(f"Error processing response: {e}")
         return None
 
-# Function to determine the category without querying GPT
-def get_category_for_item(item_class, original_class):
-    # Special case for cans: Always return "beverage" for cans
+# Function to determine the category for each item
+def get_category_for_item(item_class):
     if item_class == "can":
         return "beverage"
-    # Additional mappings can be added as needed
-    if item_class == "banana" or item_class == "apple":
+    if item_class in ["banana", "apple"]:
         return "fruit"
     if item_class == "yogurt":
         return "packaged_food"
-    
-    # Default category if nothing matches
     return "unknown"
 
-# Function to process each detected item separately using detected class names
-def process_each_detected_item(image, api_key):
-    items_info, img_with_boxes = detect_items_yolov8(image)
-    
-    item_info_data = []
-    
-    for item_info in items_info:
-        item_class = item_info["class_name"]
-        original_class = item_info["original_class"]  # Use original class for special cases (like opened/closed can)
-        bbox = item_info["bbox"]
-        
-        # Crop the detected item from the image
-        cropped_item = crop_item_from_image(img_with_boxes, bbox)
-        _, img_encoded = cv2.imencode('.jpg', cropped_item)
-        cropped_image_bytes = img_encoded.tobytes()
+# Function to update items based on detected items and the CSV data
+def update_items_and_csv(new_items, api_key):
+    # Load existing CSV data
+    if os.path.exists(CSV_FILE_PATH):
+        df = pd.read_csv(CSV_FILE_PATH)
+    else:
+        df = pd.DataFrame(columns=["Name", "Expiry Date", "Category"])
 
-        # Get expiry details about the item using GPT
-        expiry = get_expiry_for_item(item_class, original_class, api_key)
-        # Category is determined without GPT, based on predefined rules
-        category = get_category_for_item(item_class, original_class)
+    # Track updated items and query GPT for new items
+    updated_items = []
 
-        # If expiry is None, fallback to a default value (e.g., 365 days for cans, 7 for fresh produce)
-        if expiry is None and "can" in original_class:
-            expiry = 365  # Default for cans
-        elif expiry is None:
-            expiry = 7  # Generic fallback value for other items
+    # Remove items from the CSV that are not in the new image
+    df = df[df["Name"].isin(new_items)]
 
-        item_info_data.append({
-            "Name": item_class,
-            "Expiry (Days)": expiry,
-            "Category": category
-        })
-    
-    return item_info_data
+    # Process each new item
+    for item in new_items:
+        # Check if the item already exists
+        existing_row = df[df["Name"] == item]
 
-# Function to store results in a DataFrame (used in upload-image endpoint)
-def store_info_in_dataframe(item_info_data):
-    df = pd.DataFrame(item_info_data)
-    return df
+        if existing_row.empty:
+            # New item: Query GPT and add to CSV
+            expiry_days = get_expiry_for_item(item, api_key)
+            if expiry_days is None:
+                expiry_days = 7  # Default value if GPT fails
+            expiry_date = (datetime.now() + timedelta(days=expiry_days)).strftime('%Y-%m-%d')
+            category = get_category_for_item(item)
 
-# Existing '/upload-image' endpoint for processing the image and returning data
+            # Add the new item to the DataFrame using pd.concat
+            new_row = pd.DataFrame({"Name": [item], "Expiry Date": [expiry_date], "Category": [category]})
+            df = pd.concat([df, new_row], ignore_index=True)
+            updated_items.append({"Name": item, "Expiry Date": expiry_date, "Category": category})
+        else:
+            # Existing item: Keep the existing expiry date and category
+            updated_items.append({
+                "Name": existing_row["Name"].values[0],
+                "Expiry Date": existing_row["Expiry Date"].values[0],
+                "Category": existing_row["Category"].values[0]
+            })
+
+    # Save the updated DataFrame back to the CSV
+    df.to_csv(CSV_FILE_PATH, index=False)
+
+    return updated_items
+
+# '/upload-image' endpoint for processing the image and returning updated data
 @app.route('/upload-image', methods=['POST'])
 def upload_image():
     if 'file' not in request.files:
@@ -178,57 +155,12 @@ def upload_image():
     if file:
         # Process the image file
         image = file.read()
-        item_info_data = process_each_detected_item(image, api_key)
-        df = store_info_in_dataframe(item_info_data)
-        
-        # Convert DataFrame to JSON for API response
-        df_json = df.to_json(orient='records')
-        return jsonify({"data": json.loads(df_json)}), 200
+        new_items = detect_items_yolov8(image)
 
-    return jsonify({"error": "File processing failed"}), 500
+        # Update items and CSV, only querying GPT for new or changed items
+        updated_items = update_items_and_csv(new_items, api_key)
 
-# Detect items and draw bounding boxes using YOLOv8 (optional functionality)
-def detect_items_and_draw_boxes_yolov8(image):
-    np_img = np.frombuffer(image, np.uint8)
-    img = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
-
-    # Perform object detection using YOLOv8
-    results = yolo_model.predict(source=img, save=False)  # Disable save since we don't want to save the image
-
-    # Get the annotated image with bounding boxes
-    annotated_img = results[0].plot()
-
-    return annotated_img
-
-# New '/detect-items' endpoint for returning image with bounding boxes (YOLOv8)
-@app.route('/detect-items', methods=['POST'])
-def detect_items():
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part in the request"}), 400
-
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
-
-    if file:
-        # Process the image file
-        image = file.read()
-
-        # Detect items and draw bounding boxes using YOLOv8
-        image_with_boxes = detect_items_and_draw_boxes_yolov8(image)
-        
-        # Convert the image with bounding boxes back to a format that can be served
-        _, img_encoded = cv2.imencode('.jpg', image_with_boxes)
-        img_bytes = img_encoded.tobytes()
-        
-        # Create a response with the image with bounding boxes
-        response_img = Image.open(io.BytesIO(img_bytes))
-        byte_io = io.BytesIO()
-        response_img.save(byte_io, 'JPEG')
-        byte_io.seek(0)
-
-        # Send the image back with bounding boxes
-        return send_file(byte_io, mimetype='image/jpeg')
+        return jsonify({"data": updated_items}), 200
 
     return jsonify({"error": "File processing failed"}), 500
 
