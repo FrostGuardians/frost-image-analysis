@@ -14,7 +14,7 @@ from ultralytics import YOLO
 app = Flask(__name__)
 
 # Load pre-trained YOLOv8 model for object detection
-yolo_model = YOLO("yolov8n.pt")
+yolo_model = YOLO("best.pt")
 
 # Function to encode the image
 def encode_image(image):
