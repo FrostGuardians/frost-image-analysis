@@ -1,6 +1,6 @@
 # FrostGuardians
 
-![FrostGuardians Logo](/logo.png)
+![FrostGuardians Logo](https://avatars.githubusercontent.com/u/180691607?s=96&v=4)
 
 FrostGuardians is a smart fridge food waste management system designed to reduce food waste and carbon emissions. This repository contains the main image analysis AI that detects items in the fridge and predicts the remaining expiration days for each item. It also triggers the backend to initiate user notifications and alerts.
 
